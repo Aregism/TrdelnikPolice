@@ -3,6 +3,7 @@ package net.aregism.trdelnikpolice.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import net.aregism.trdelnikpolice.config.TelegramProperties;
+import net.aregism.trdelnikpolice.model.common.MemberReport;
 import net.aregism.trdelnikpolice.model.entity.ChatMember;
 import net.aregism.trdelnikpolice.model.entity.KeywordUsage;
 import net.aregism.trdelnikpolice.repository.ChatMemberRepository;
@@ -10,6 +11,8 @@ import net.aregism.trdelnikpolice.repository.KeywordUsageRepository;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 @Log4j2
@@ -31,34 +34,46 @@ public class ReportScheduler {
             return;
         }
 
+        List<MemberReport> reports = new ArrayList<>();
+
         for (ChatMember member : members) {
             List<KeywordUsage> usages = keywordUsageRepository.findByChatMember(member);
-
             if (usages.isEmpty()) continue;
 
-            StringBuilder report = new StringBuilder();
-            report.append(member.getUsername())
-                    .append("-n havayi od a brdel ")
-                    .append(":\n");
+            int totalCount = usages.stream()
+                    .mapToInt(KeywordUsage::getCount)
+                    .sum();
 
-            int totalCount = 0;
-            for (KeywordUsage usage : usages) {
+            reports.add(new MemberReport(member, usages, totalCount));
+        }
+
+        reports.sort(Comparator.comparingInt(MemberReport::totalCount).reversed());
+
+        for (MemberReport r : reports) {
+            StringBuilder report = new StringBuilder();
+            report.append(r.member().getUsername())
+                    .append(" -n havayi od a brdel:\n");
+
+            for (KeywordUsage usage : r.usages()) {
                 report.append(usage.getKeyword())
                         .append(": ")
                         .append(usage.getCount())
                         .append("\n");
-                totalCount += usage.getCount();
             }
+
             report.append("\n")
-                    .append(totalCount)
+                    .append(r.totalCount())
                     .append(" angam.");
 
-            appendWindTerm(report, totalCount);
+            appendWindTerm(report, r.totalCount());
 
-            // send report via Telegram
             service.sendMessage(properties.getChatId(), report.toString());
 
-            log.info("Sent keyword usage report for {} ({} keywords)", member.getUsername(), usages.size());
+            log.info(
+                    "Sent keyword usage report for {} (total={})",
+                    r.member().getUsername(),
+                    r.totalCount()
+            );
         }
 
         log.info("Scheduled keyword usage report completed.");
