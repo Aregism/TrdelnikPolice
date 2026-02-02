@@ -14,5 +14,6 @@ public class TelegramProperties {
     private String username;
     private String webhookPath;
     private long chatId;
-    private int reportHoursInterval;
+    private int deleteMessagesCount;
+    private int deleteMessagesOutOf;
 }

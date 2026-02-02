@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import net.aregism.trdelnikpolice.config.TelegramProperties;
+import net.aregism.trdelnikpolice.model.common.Language;
 import net.aregism.trdelnikpolice.model.common.Mapping;
 import net.aregism.trdelnikpolice.model.common.Position;
 import net.aregism.trdelnikpolice.model.dto.TelegramMessageDto;
@@ -14,6 +15,9 @@ import net.aregism.trdelnikpolice.repository.ChatMemberRepository;
 import net.aregism.trdelnikpolice.repository.KeywordUsageRepository;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -63,8 +67,14 @@ public class TelegramService {
                         .filter(w -> !w.isEmpty())
                         .distinct()
                         .collect(Collectors.toList()); // distinct to list instead of set, because order is important
-
+        Language language = probe(words);
         StringBuilder combinedReplies = new StringBuilder();
+        if (random.nextInt(properties.getDeleteMessagesOutOf()) <= properties.getDeleteMessagesCount()) {
+            String msg = language.equals(Language.EN) ? "tazuc gri, blyat" : "թազուց գրի, բլյատ";
+            deleteMessage(properties.getChatId(), dto.getMessageId());
+            sendMessage(properties.getChatId(), msg);
+            return;
+        }
 
         for (Mapping mapping : mappings) {
             String key = mapping.getKeyword();
@@ -72,13 +82,17 @@ public class TelegramService {
 
             if (correctPositionKeyFound(words, mapping)) {
                 recordUsage(dto, mapping.getKeyword());
-                String reply = getRandomReply(mapping.getResponses());
-                log.info("Matched key='{}' in message. Adding reply='{}'", key, reply);
+                if (!mapping.getPosition().equals(Position.REPLACE)) {
+                    String reply = getRandomReply(mapping.getResponses());
+                    log.info("Matched key='{}' in message. Adding reply='{}'", key, reply);
 
-                if (combinedReplies.length() > 0) {
-                    combinedReplies.append("\n");
+                    if (!combinedReplies.isEmpty()) {
+                        combinedReplies.append("\n");
+                    }
+                    combinedReplies.append(reply);
+                } else {
+                    // replace logic
                 }
-                combinedReplies.append(reply);
             }
         }
 
@@ -87,6 +101,41 @@ public class TelegramService {
         } else {
             log.debug("No matching key found for messageId={}", dto.getMessageId());
         }
+    }
+
+    private Language probe(List<String> words) {
+        int am = 0;
+        int en = 0;
+
+        for (String word : words) {
+            for (int i = 0; i < word.length(); i++) {
+                char c = word.charAt(i);
+
+                if (c >= '\u0530' && c <= '\u058F') {
+                    am++;
+                } else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+                    en++;
+                }
+            }
+        }
+
+        return am > en ? Language.AM : Language.EN;
+    }
+
+
+    private void deleteMessage(long chatId, int messageId) {
+        log.info("Deleting...");
+        RestTemplate template = new RestTemplate();
+        String url = "https://api.telegram.org/bot" + properties.getToken() + "/deleteMessage";
+        Map<String, Object> body = new HashMap<>();
+        body.put("chat_id", chatId);
+        body.put("message_id", messageId);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+        template.postForObject(url, request, String.class);
     }
 
     private boolean correctPositionKeyFound(List<String> words, Mapping mapping) {
@@ -103,6 +152,8 @@ public class TelegramService {
         } else if ((mapping.getPosition().equals(Position.REGEX)) && matchesSequence(words, normalizedKey)) {
             return true;
         } else if ((mapping.getPosition().equals(Position.CONTAIN)) && containsSequence(words, normalizedKey)) {
+            return true;
+        } else if ((mapping.getPosition().equals(Position.REPLACE)) && containsSequence(words, normalizedKey)) {
             return true;
         }
         return false;

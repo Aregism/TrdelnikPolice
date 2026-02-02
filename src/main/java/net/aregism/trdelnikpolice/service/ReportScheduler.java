@@ -25,7 +25,7 @@ public class ReportScheduler {
     private final ChatMemberRepository chatMemberRepository;
     private final KeywordUsageRepository keywordUsageRepository;
 
-    @Scheduled(fixedRateString = "#{${telegram.bot.report.hours.interval} * 60 * 60 * 1000}")
+    @Scheduled(cron = "0 0 12 * * *")
     public void sendReport() {
         log.info("Starting scheduled keyword usage report...");
 

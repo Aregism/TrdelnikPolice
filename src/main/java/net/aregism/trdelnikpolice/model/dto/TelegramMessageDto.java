@@ -8,7 +8,7 @@ import lombok.*;
 @AllArgsConstructor
 public class TelegramMessageDto {
     private long chatId;
-    private long messageId;
+    private int messageId;
     private String text;
     private String sender;
     private boolean replyToBot;
